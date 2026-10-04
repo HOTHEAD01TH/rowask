@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RowAsk</title>
+  <style>
+    :root { color-scheme: light; --ink: #1c1915; --paper: #f6f1e7; --line: #d9d0c1; --mark: #8c3a2f; }
+    body { margin: 0; font: 16px/1.45 "Iowan Old Style", Palatino, Georgia, serif; background: var(--paper); color: var(--ink); }
+    main { max-width: 960px; margin: 0 auto; padding: 28px 20px 64px; }
+    h1 { font-weight: 600; letter-spacing: -0.03em; margin: 0 0 8px; }
+    p.lead { margin: 0 0 18px; max-width: 62ch; }
+    #banner { min-height: 1.4em; font-weight: 700; color: var(--mark); }
+    form { display: flex; gap: 8px; margin: 12px 0 18px; }
+    input { flex: 1; font: inherit; padding: 8px 10px; border: 1px solid var(--line); background: #fff; }
+    button { font: inherit; padding: 8px 14px; background: var(--ink); color: var(--paper); border: 0; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; background: #fff; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+    th { font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; }
+    .match { background: #efe7d2; }
+    pre { white-space: pre-wrap; background: #fff; padding: 10px; border: 1px solid var(--line); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>RowAsk</h1>
+  <p class="lead">Natural-language filter on a local SQLite table. Laya sees the question and the column names only. Match scores are computed here after a safe filter. Abstain runs no filter.</p>
+  <p id="banner" role="status">Laya not running</p>
+  <form id="form">
+    <input id="q" name="question" placeholder="status is open" autocomplete="off" />
+    <button type="submit">Filter</button>
+  </form>
+  <p id="meta"></p>
+  <table>
+    <thead>
+      <tr><th>id</th><th>status</th><th>priority</th><th>region</th><th>age_days</th><th>owner</th><th>local score</th><th>local noul</th></tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <h2>Sent to Laya</h2>
+  <pre id="sent">Nothing sent yet.</pre>
+</main>
+<script>
+const banner = document.querySelector("#banner");
+const meta = document.querySelector("#meta");
+const body = document.querySelector("#rows");
+const sent = document.querySelector("#sent");
+
+function draw(rows) {
+  body.replaceChildren();
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    if (row.local_score === 1) tr.className = "match";
+    for (const key of ["id", "status", "priority", "region", "age_days", "owner", "local_score", "local_noul"]) {
+      const td = document.createElement("td");
+      td.textContent = row[key] == null ? "" : String(row[key]);
+      tr.append(td);
+    }
+    body.append(tr);
+  }
+}
+
+async function refreshHealth() {
+  const res = await fetch("/api/health");
+  const data = await res.json();
+  banner.textContent = data.error === "Laya not running" ? "Laya not running" : "";
+}
+
+async function loadRows() {
+  const res = await fetch("/api/rows");
+  const data = await res.json();
+  draw(data.rows);
+}
+
+document.querySelector("#form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const question = document.querySelector("#q").value.trim();
+  if (!question) return;
+  const res = await fetch("/api/filter", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ question }),
+  });
+  const data = await res.json();
+  if (data.error === "Laya not running") {
+    banner.textContent = "Laya not running";
+    meta.textContent = "No filter ran.";
+  } else if (data.abstained) {
+    banner.textContent = banner.textContent === "Laya not running" ? "Laya not running" : "";
+    meta.textContent = "Abstain lane: no filter ran.";
+  } else {
+    banner.textContent = "";
+    meta.textContent = "Filter " + data.filter.column + " " + data.filter.op + " " + data.filter.value + ". Local score is a match bit, not a Laya score.";
+  }
+  sent.textContent = JSON.stringify(data.sent ?? null, null, 2);
+  draw(data.rows || []);
+});
+
+refreshHealth();
+loadRows();
+setInterval(refreshHealth, 3000);
+</script>
+</body>
+</html>
